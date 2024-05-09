@@ -113,8 +113,9 @@ class MoveMatrix:
                 if remaining_results == 0:
                     break
 
-        distribution = self.sort_distribution(distribution)
-
+        print(distribution)
+        distribution = self.symmetric_peak_sort_dict(distribution)
+        print(distribution)
         return distribution
 
     def find_center(self, min_result, max_result):
@@ -124,6 +125,28 @@ class MoveMatrix:
         return dict(
             sorted(distribution.items(), key=lambda item: item[1], reverse=True)
         )
+
+    def symmetric_peak_sort_dict(self, distribution: dict, ascending: bool = False):
+        # Extract items and sort by value
+        sorted_items = sorted(distribution.items(), key=lambda x: x[1])
+
+        # Prepare to reorder items symmetrically
+        reordered_items = [None] * len(sorted_items)
+        start_index = 0
+        end_index = len(sorted_items) - 1
+
+        # Place items starting from the middle to the ends
+
+        for item in sorted_items:
+            if ascending:
+                reordered_items[start_index] = item
+                start_index += 1
+            else:
+                reordered_items[end_index] = item
+                end_index -= 1
+            ascending = not ascending
+        # Create a new dictionary to maintain the order
+        return dict(reordered_items)
 
 
 class Dice:
@@ -187,4 +210,4 @@ if __name__ == "__main__":
     main = Main()
     main.run()
     main.hex_flower.get_contained_hexes()
-    main.move_matrix.assign_results_to_moves(2, 12, ["NE", "W", "SE"])
+    main.move_matrix.assign_results_to_moves(2, 12, ["NE", "E", "SE", "SW", "W", "NW"])
