@@ -1,6 +1,11 @@
 import random
 
 
+class DiceMechanic:
+    def __init__(self, range: list):
+        self.range = range
+
+
 class Hex:
     def __init__(self, q, r, closed_borders: list = None):
         self.q = q
@@ -40,8 +45,8 @@ class HexFlower:
 
     def create_ring(self, ring):
         q, r, s = ring, -ring, 0  # Start from the NE point of each ring
-        for side in range(6):
-            for step in range(ring):
+        for _ in range(6):
+            for _ in range(ring):
                 self.hexes.append(Hex(q, r))
                 q, r, s = -s, -q, -r  # Move clockwise around the ring
             q, r, s = r, -q - r, q  # Rotate clockwise to the next side of the hexagon
@@ -60,7 +65,12 @@ class HexFlower:
 
 
 class MoveMatrix:
-    def __init__(self, hex_flower: HexFlower, moves: dict = None):
+    def __init__(
+        self,
+        hex_flower: HexFlower,
+        dice_roller: DiceMechanic,
+        moves: dict = None,
+    ):
         if moves is None:
             moves = {
                 "NE": (1, -1),
@@ -73,23 +83,30 @@ class MoveMatrix:
         self.hex_flower = hex_flower
         self.moves = moves
         self.distribution: dict = {}
+        self.dice_roller = dice_roller
 
     def set_distribution(self, distribution: dict):
         self.distribution = distribution
 
-    def setup_roll_table(
-        self, min_result: int, max_result: int, favourite_direction: list
-    ):
+    def setup_roll_table(self, favourite_direction: list):
+        distribution = self.calculate_distribution(favourite_direction)
+        distribution = self.symmetric_peak_sort_dict(distribution)
+        distribution = self.distrubution_to_diceresult_range(distribution)
+        self.set_distribution(distribution)
+
+    def calculate_distribution(self, favourite_direction: list):
         distribution: dict = {}
 
-        assingnable_results: int = max_result + 1 - min_result
-        even_distributeable_results: int = assingnable_results // len(self.moves)
-        remaining_results: int = (
-            assingnable_results - even_distributeable_results * len(self.moves)
+        assignable_results: int = (
+            self.dice_roller.range[1] + 1 - self.dice_roller.range[0]
+        )
+        even_distributable_results: int = assignable_results // len(self.moves)
+        remaining_results: int = assignable_results - even_distributable_results * len(
+            self.moves
         )
 
         for direction in self.moves:
-            distribution[direction] = even_distributeable_results
+            distribution[direction] = even_distributable_results
 
         while remaining_results > 0:
             for direction in favourite_direction:
@@ -98,20 +115,16 @@ class MoveMatrix:
                 if remaining_results == 0:
                     break
 
-        distribution = self.symmetric_peak_sort_dict(distribution)
-        distribution = self.distrubution_to_diceresult_range(
-            distribution, min_result, max_result
-        )
-        self.set_distribution(distribution)
+        return distribution
 
-    def distrubution_to_diceresult_range(
-        self, reordered_items: dict, min_result: int, max_result: int
-    ):
-        possible_results = list(range(min_result, max_result + 1))
+    def distrubution_to_diceresult_range(self, reordered_items: dict):
+        possible_results = list(
+            range(self.dice_roller.range[0], self.dice_roller.range[1] + 1)
+        )
         asigned_results = {direction: [] for direction in reordered_items}
 
         for direction in reordered_items:
-            for value in range(reordered_items[direction]):
+            for _ in range(reordered_items[direction]):
                 asigned_results[direction].append(possible_results.pop(0))
 
         return asigned_results
@@ -144,9 +157,17 @@ class MoveMatrix:
 
 
 class Pointer:
-    def __init__(self, hex_flower: HexFlower, move_matrix: MoveMatrix, q: int, r: int):
+    def __init__(
+        self,
+        hex_flower: HexFlower,
+        move_matrix: MoveMatrix,
+        dice_roller,
+        q: int,
+        r: int,
+    ):
         self.hex_flower = hex_flower
         self.move_matrix = move_matrix
+        self.dice_roller = dice_roller
         self.q = q
         self.r = r
 
@@ -162,7 +183,7 @@ class Pointer:
         print(f"Pointer moved to ({self.q},{self.r})")
 
     def determine_move_direction(self, move_matrix: MoveMatrix):
-        roll = MiddleOf3D20().roll()
+        roll = self.dice_roller.roll()
         print(move_matrix.distribution)
         for direction in move_matrix.distribution:
             if roll in move_matrix.distribution[direction]:
@@ -202,10 +223,10 @@ class DicePool:
         return sum(self.roll_all())
 
 
-class MiddleOf3D20:
+class MiddleOf3D20(DiceMechanic):
     def __init__(self):
+        super().__init__((1, 20))
         self.dice_pool = DicePool(3, 20)
-        self.range = (1, 20)
 
     def __str__(self):
         return f"MiddleOf3D20 with {len(self.dice_pool.dice)} dice. Each dice has {self.dice_pool.dice[0].faces} faces."
@@ -220,17 +241,22 @@ class MiddleOf3D20:
 
 class Main:
     def __init__(self):
-        self.hex_flower = HexFlower(2)
-        self.move_matrix = MoveMatrix(self.hex_flower)
-        self.pointer = Pointer(self.hex_flower, self.move_matrix, 0, 0)
 
-    def run(self):
-        pass
+        self.dice_roller = MiddleOf3D20()
+        self.hex_flower = HexFlower(2)
+        self.move_matrix = MoveMatrix(self.hex_flower, self.dice_roller)
+
+        self.pointer = Pointer(
+            self.hex_flower,
+            self.move_matrix,
+            self.dice_roller,
+            0,
+            0,
+        )
 
 
 if __name__ == "__main__":
     main = Main()
-    main.run()
-    main.move_matrix.setup_roll_table(1, 20, ["NE", "E", "SE", "SW", "W", "NW"])
+    main.move_matrix.setup_roll_table(["NE", "E", "SE", "SW", "W", "NW"])
     for _ in range(10):
         main.pointer.determine_move_direction(main.move_matrix)
