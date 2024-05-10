@@ -2,15 +2,18 @@ import random
 
 
 class Hex:
-    def __init__(self, q, r):
+    def __init__(self, q, r, closed_borders: list = None):
         self.q = q
         self.r = r
         self.s = self.calculate_s()
+        self.closed_borders = closed_borders
 
     def __str__(self):
         return f"Hex at ({self.q},{self.r},{self.s})"
 
     def __eq__(self, other):
+        if not isinstance(other, Hex):
+            return NotImplemented
         return self.q == other.q and self.r == other.r and self.s == other.s
 
     def calculate_s(self):
@@ -44,10 +47,7 @@ class HexFlower:
             q, r, s = r, -q - r, q  # Rotate clockwise to the next side of the hexagon
 
     def get_contained_hexes(self):
-        """Return a list of hexes contained in the given HexFlower instance."""
-        print("HexFlower with the following hexes:")
-        for hex in self.hexes:
-            print(hex)
+        """Return a list of all hexes in the HexFlower."""
         return self.hexes
 
     def get_hex(self, q, r):
@@ -57,25 +57,6 @@ class HexFlower:
                 return hex
         print(f"No hex found at ({q},{r})")
         return None
-
-
-class Pointer:
-    def __init__(self, hex_flower: HexFlower, q: int, r: int):
-        self.hex_flower = hex_flower
-        self.q = q
-        self.r = r
-
-    def move_pointer(self, direction: str):
-        """Move the pointer in the given direction."""
-        move_matrix = MoveMatrix(self.hex_flower)
-
-        if direction not in move_matrix.moves:
-            print(f"Invalid direction: {direction}, Pointer NOT moved.")
-            return
-        move = move_matrix.moves[direction]
-        self.q += move[0]
-        self.r += move[1]
-        print(f"Pointer moved to ({self.q},{self.r})")
 
 
 class MoveMatrix:
@@ -91,8 +72,12 @@ class MoveMatrix:
             }
         self.hex_flower = hex_flower
         self.moves = moves
+        self.distribution: dict = {}
 
-    def assign_results_to_moves(
+    def set_distribution(self, distribution: dict):
+        self.distribution = distribution
+
+    def setup_roll_table(
         self, min_result: int, max_result: int, favourite_direction: list
     ):
         distribution: dict = {}
@@ -113,22 +98,28 @@ class MoveMatrix:
                 if remaining_results == 0:
                     break
 
-        print(distribution)
         distribution = self.symmetric_peak_sort_dict(distribution)
-        print(distribution)
-        return distribution
-
-    def find_center(self, min_result, max_result):
-        return (min_result + max_result) // 2
-
-    def sort_distribution(self, distribution: dict):
-        return dict(
-            sorted(distribution.items(), key=lambda item: item[1], reverse=True)
+        distribution = self.distrubution_to_diceresult_range(
+            distribution, min_result, max_result
         )
+        self.set_distribution(distribution)
+
+    def distrubution_to_diceresult_range(
+        self, reordered_items: dict, min_result: int, max_result: int
+    ):
+        possible_results = list(range(min_result, max_result + 1))
+        asigned_results = {direction: [] for direction in reordered_items}
+
+        for direction in reordered_items:
+            for value in range(reordered_items[direction]):
+                asigned_results[direction].append(possible_results.pop(0))
+
+        return asigned_results
 
     def symmetric_peak_sort_dict(self, distribution: dict, ascending: bool = False):
+
         # Extract items and sort by value
-        sorted_items = sorted(distribution.items(), key=lambda x: x[1])
+        sorted_items = self.sort_dict_by_values(distribution)
 
         # Prepare to reorder items symmetrically
         reordered_items = [None] * len(sorted_items)
@@ -147,6 +138,37 @@ class MoveMatrix:
             ascending = not ascending
         # Create a new dictionary to maintain the order
         return dict(reordered_items)
+
+    def sort_dict_by_values(self, dictionary: dict):
+        return sorted(dictionary.items(), key=lambda x: x[1])
+
+
+class Pointer:
+    def __init__(self, hex_flower: HexFlower, move_matrix: MoveMatrix, q: int, r: int):
+        self.hex_flower = hex_flower
+        self.move_matrix = move_matrix
+        self.q = q
+        self.r = r
+
+    def move_pointer(self, direction: str):
+        """Move the pointer in the given direction."""
+
+        if direction not in self.move_matrix.moves:
+            print(f"Invalid direction: {direction}, Pointer NOT moved.")
+            return
+        move = self.move_matrix.moves[direction]
+        self.q += move[0]
+        self.r += move[1]
+        print(f"Pointer moved to ({self.q},{self.r})")
+
+    def determine_move_direction(self, move_matrix: MoveMatrix):
+        roll = MiddleOf3D20().roll()
+        print(move_matrix.distribution)
+        for direction in move_matrix.distribution:
+            if roll in move_matrix.distribution[direction]:
+                print(f"Pointer moved {direction}")
+                self.move_pointer(direction)
+                return
 
 
 class Dice:
@@ -192,15 +214,15 @@ class MiddleOf3D20:
         """Roll 3 dice with 20 faces each and return the middle value."""
         rolls = self.dice_pool.roll_all()
         rolls.sort()
+        print(f"Rolled {rolls}, middle value is {rolls[1]}")
         return rolls[1]
 
 
 class Main:
     def __init__(self):
         self.hex_flower = HexFlower(2)
-        self.pointer = Pointer(self.hex_flower, 0, 0)
         self.move_matrix = MoveMatrix(self.hex_flower)
-        print(self.hex_flower)
+        self.pointer = Pointer(self.hex_flower, self.move_matrix, 0, 0)
 
     def run(self):
         pass
@@ -209,5 +231,6 @@ class Main:
 if __name__ == "__main__":
     main = Main()
     main.run()
-    main.hex_flower.get_contained_hexes()
-    main.move_matrix.assign_results_to_moves(2, 12, ["NE", "E", "SE", "SW", "W", "NW"])
+    main.move_matrix.setup_roll_table(1, 20, ["NE", "E", "SE", "SW", "W", "NW"])
+    for _ in range(10):
+        main.pointer.determine_move_direction(main.move_matrix)
