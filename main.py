@@ -1,4 +1,6 @@
 import random
+import plotly.graph_objects as go
+import numpy as np
 
 
 class DiceMechanic:
@@ -12,6 +14,7 @@ class Hex:
         self.r = r
         self.s = self.calculate_s()
         self.closed_borders = closed_borders
+        self.size = 1
 
     def __str__(self):
         return f"Hex at ({self.q},{self.r},{self.s})"
@@ -24,6 +27,12 @@ class Hex:
     def calculate_s(self):
         self.s = -self.q - self.r
         return self.s
+
+    def get_cartesian(self):
+        # Convert axial coordinates to cartesian coordinates for a point up orientation hex grid
+        y = self.size * (3 / 2 * self.q)
+        x = self.size * (np.sqrt(3) * ((self.q / 2) + self.r))
+        return x, y
 
 
 class HexFlower:
@@ -40,16 +49,14 @@ class HexFlower:
         return f"HexFlower with {len(self.hexes)} hexes"
 
     def create_hex_flower(self):
-        for ring in range(1, self.rings + 1):
-            self.create_ring(ring)
-
-    def create_ring(self, ring):
-        q, r, s = ring, -ring, 0  # Start from the NE point of each ring
-        for _ in range(6):
-            for _ in range(ring):
-                self.hexes.append(Hex(q, r))
-                q, r, s = -s, -q, -r  # Move clockwise around the ring
-            q, r, s = r, -q - r, q  # Rotate clockwise to the next side of the hexagon
+        n = self.rings
+        for q in range(-n, n + 1):
+            r1 = max(-n, -q - n)
+            r2 = min(n, -q + n)
+            for r in range(r1, r2 + 1):
+                new_hex = Hex(q, r)
+                print(f"Created hex at ({q},{r})")
+                self.hexes.append(new_hex)
 
     def get_contained_hexes(self):
         """Return a list of all hexes in the HexFlower."""
@@ -63,6 +70,17 @@ class HexFlower:
         print(f"No hex found at ({q},{r})")
         return None
 
+    def get_plot_data(self):
+        x_coords = []
+        y_coords = []
+        labels = []
+        for hex in self.hexes:
+            x, y = hex.get_cartesian()
+            x_coords.append(x)
+            y_coords.append(y)
+            labels.append(f"({hex.q},{hex.r})")
+        return x_coords, y_coords, labels
+
 
 class MoveMatrix:
     def __init__(
@@ -73,12 +91,12 @@ class MoveMatrix:
     ):
         if moves is None:
             moves = {
-                "NE": (1, -1),
-                "E": (1, 0),
-                "SE": (0, 1),
-                "SW": (-1, 1),
-                "W": (-1, 0),
-                "NW": (0, -1),
+                "NE": (1, 0),
+                "E": (0, 1),
+                "SE": (-1, 1),
+                "SW": (-1, 0),
+                "W": (0, -1),
+                "NW": (1, -1),
             }
         self.hex_flower = hex_flower
         self.moves = moves
@@ -174,13 +192,44 @@ class Pointer:
     def move_pointer(self, direction: str):
         """Move the pointer in the given direction."""
 
+        print(f"Pointer at ({self.q},{self.r})")
+
         if direction not in self.move_matrix.moves:
             print(f"Invalid direction: {direction}, Pointer NOT moved.")
+            print("---")
             return
+
         move = self.move_matrix.moves[direction]
-        self.q += move[0]
-        self.r += move[1]
+
+        if self.hex_flower.get_hex(self.q + move[0], self.r + move[1]) is None:
+            temp_q, temp_r = self.get_oposite_hex(direction)
+            print("Nonexistent target hex, Pointer NOT moved.")
+            print(f"New source hex would be at ({temp_q},{temp_r})")
+            print("---")
+            return
+
+        else:
+            self.q += move[0]
+            self.r += move[1]
+
         print(f"Pointer moved to ({self.q},{self.r})")
+        print("---")
+
+    def get_oposite_hex(self, direction: str):
+        q = self.q
+        r = self.r
+        s = -q - r
+        vector = self.move_matrix.moves[direction]
+        rings = self.hex_flower.rings
+        if abs(q) > rings:
+            q = -int(q / abs(q)) * rings
+        if abs(r) > rings:
+            r = -int(r / abs(r)) * rings
+        if abs(s) > rings:
+            new_s = -int(s / abs(s)) * rings
+            q = -new_s - r
+        print(f"Oposite hex is ({q},{r}) at vector {direction}")
+        return q, r
 
     def determine_move_direction(self, move_matrix: MoveMatrix):
         roll = self.dice_roller.roll()
@@ -190,6 +239,12 @@ class Pointer:
                 print(f"Pointer moved {direction}")
                 self.move_pointer(direction)
                 return
+
+    def get_position(self):
+        hex_to_get = self.hex_flower.get_hex(self.q, self.r)
+        if hex_to_get is not None:
+            return hex_to_get.get_cartesian()
+        return None
 
 
 class Dice:
@@ -254,9 +309,47 @@ class Main:
             0,
         )
 
+    def plot(self):
+        fig = go.Figure()
+
+        # Plot HexFlower
+        x_hexes, y_hexes, labels = self.hex_flower.get_plot_data()
+        fig.add_trace(
+            go.Scatter(
+                x=x_hexes,
+                y=y_hexes,
+                mode="markers+text",
+                text=labels,
+                marker=dict(size=10, color="blue"),
+                textposition="bottom center",
+            )
+        )
+
+        # Plot Pointer
+        pointer_pos = self.pointer.get_position()
+        if pointer_pos:
+            fig.add_trace(
+                go.Scatter(
+                    x=[pointer_pos[0]],
+                    y=[pointer_pos[1]],
+                    mode="markers",
+                    marker=dict(size=15, color="red"),
+                )
+            )
+
+        fig.update_layout(
+            title="HexFlower and Pointer Movement",
+            xaxis_title="x",
+            yaxis_title="y",
+            xaxis=dict(scaleanchor="y", scaleratio=1),
+            yaxis=dict(scaleanchor="x", scaleratio=1),
+        )
+        fig.show()
+
 
 if __name__ == "__main__":
     main = Main()
     main.move_matrix.setup_roll_table(["NE", "E", "SE", "SW", "W", "NW"])
     for _ in range(10):
         main.pointer.determine_move_direction(main.move_matrix)
+        main.plot()
