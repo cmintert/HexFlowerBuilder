@@ -9,11 +9,12 @@ class DiceMechanic:
 
 
 class Hex:
-    def __init__(self, q, r, closed_borders: list = None):
+    def __init__(self, q, r, closed_borders: list = None, special_exits: dict = None):
         self.q = q
         self.r = r
         self.s = self.calculate_s()
         self.closed_borders = closed_borders
+        self.special_exits = special_exits
         self.size = 1
         self.times_visited = 0
 
