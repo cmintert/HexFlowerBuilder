@@ -15,6 +15,7 @@ class Hex:
         self.s = self.calculate_s()
         self.closed_borders = closed_borders
         self.size = 1
+        self.times_visited = 0
 
     def __str__(self):
         return f"Hex at ({self.q},{self.r},{self.s})"
@@ -28,10 +29,16 @@ class Hex:
         self.s = -self.q - self.r
         return self.s
 
-    def get_cartesian(self):
+    def get_cartesian_pointy(self):
         # Convert axial coordinates to cartesian coordinates for a point up orientation hex grid
         y = self.size * (3 / 2 * self.q)
         x = self.size * (np.sqrt(3) * ((self.q / 2) + self.r))
+        return x, y
+
+    def get_cartesian_flat(self):
+        # Convert axial coordinates to cartesian coordinates for a flat orientation hex grid
+        x = self.size * (3 / 2 * self.q)
+        y = self.size * (np.sqrt(3) / 2 * self.q + np.sqrt(3) * self.r)
         return x, y
 
 
@@ -73,13 +80,24 @@ class HexFlower:
     def get_plot_data(self):
         x_coords = []
         y_coords = []
+        sizes = []
+        colors = []
         labels = []
+
         for hex in self.hexes:
-            x, y = hex.get_cartesian()
+            x, y = hex.get_cartesian_flat()
+
             x_coords.append(x)
             y_coords.append(y)
-            labels.append(f"({hex.q},{hex.r})")
-        return x_coords, y_coords, labels
+
+            sizes.append(hex.times_visited * 10)  # Adjust the multiplier as needed
+            colors.append(hex.times_visited)
+
+            labels.append(
+                f"Pos: ({hex.q},{hex.r},{hex.s}, Times visited: {hex.times_visited})"
+            )
+
+        return x_coords, y_coords, sizes, colors, labels
 
 
 class MoveMatrix:
@@ -87,9 +105,10 @@ class MoveMatrix:
         self,
         hex_flower: HexFlower,
         dice_roller: DiceMechanic,
+        orientation: str = "flat",
         moves: dict = None,
     ):
-        if moves is None:
+        if moves is None and orientation == "pointy":
             moves = {
                 "NE": (1, 0),
                 "E": (0, 1),
@@ -97,6 +116,15 @@ class MoveMatrix:
                 "SW": (-1, 0),
                 "W": (0, -1),
                 "NW": (1, -1),
+            }
+        elif moves is None and orientation == "flat":
+            moves = {
+                "N": (0, 1),
+                "NE": (1, 0),
+                "SE": (1, -1),
+                "S": (0, -1),
+                "SW": (-1, 0),
+                "NW": (-1, 1),
             }
         self.hex_flower = hex_flower
         self.moves = moves
@@ -170,7 +198,8 @@ class MoveMatrix:
         # Create a new dictionary to maintain the order
         return dict(reordered_items)
 
-    def sort_dict_by_values(self, dictionary: dict):
+    @staticmethod
+    def sort_dict_by_values(dictionary: dict):
         return sorted(dictionary.items(), key=lambda x: x[1])
 
 
@@ -186,64 +215,85 @@ class Pointer:
         self.hex_flower = hex_flower
         self.move_matrix = move_matrix
         self.dice_roller = dice_roller
+
         self.q = q
         self.r = r
+        self.s = self.calculate_s()
 
-    def move_pointer(self, direction: str):
+    def calculate_s(self):
+        self.s = -self.q - self.r
+        return self.s
+
+    def set_pointer_position(self, q: int, r: int):
+        self.q = q
+        self.r = r
+        self.s = self.calculate_s()
+
+    def move_pointer(self):
         """Move the pointer in the given direction."""
 
         print(f"Pointer at ({self.q},{self.r})")
+
+        direction = self.determine_move_direction()
 
         if direction not in self.move_matrix.moves:
             print(f"Invalid direction: {direction}, Pointer NOT moved.")
             print("---")
             return
 
-        move = self.move_matrix.moves[direction]
+        move_vector_qr = self.move_matrix.moves[direction]
 
-        if self.hex_flower.get_hex(self.q + move[0], self.r + move[1]) is None:
-            temp_q, temp_r = self.get_oposite_hex(direction)
-            print("Nonexistent target hex, Pointer NOT moved.")
-            print(f"New source hex would be at ({temp_q},{temp_r})")
+        if (
+            self.hex_flower.get_hex(
+                self.q + move_vector_qr[0], self.r + move_vector_qr[1]
+            )
+            is None
+        ):
+            temp_q, temp_r, _ = self.transform_coordinates(
+                self.q, self.r, self.s, move_vector_qr
+            )
+
+            self.set_pointer_position(temp_q, temp_r)
+
+            self.hex_flower.get_hex(self.q, self.r).times_visited += 1
+            print(f"Pointer moved to opposite hex at {self.q},{self.r},{self.s}")
             print("---")
             return
 
-        else:
-            self.q += move[0]
-            self.r += move[1]
+        self.set_pointer_position(
+            self.q + move_vector_qr[0], self.r + move_vector_qr[1]
+        )
+        self.hex_flower.get_hex(self.q, self.r).times_visited += 1
 
         print(f"Pointer moved to ({self.q},{self.r})")
         print("---")
 
-    def get_oposite_hex(self, direction: str):
-        q = self.q
-        r = self.r
-        s = -q - r
-        vector = self.move_matrix.moves[direction]
-        rings = self.hex_flower.rings
-        if abs(q) > rings:
-            q = -int(q / abs(q)) * rings
-        if abs(r) > rings:
-            r = -int(r / abs(r)) * rings
-        if abs(s) > rings:
-            new_s = -int(s / abs(s)) * rings
-            q = -new_s - r
-        print(f"Oposite hex is ({q},{r}) at vector {direction}")
-        return q, r
+    @staticmethod
+    def transform_coordinates(q, r, s, direction):
 
-    def determine_move_direction(self, move_matrix: MoveMatrix):
+        abs_direction = (abs(direction[0]), abs(direction[1]))
+
+        if abs_direction == (1, 0):
+            return s, r, q  # srq, applies for direction (1, 0) and (-1, 0)
+        elif abs_direction == (1, 1):
+            return r, q, s  # rqs, applies for direction (1, -1) and (-1, 1)
+        elif abs_direction == (0, 1):
+            return q, s, r  # qsr, applies for direction (0, 1) and (0, -1)
+        else:
+            print(f"Invalid direction: {direction}, no transformation occured")
+            return q, r, s  # No transformation for unrecognized directions
+
+    def determine_move_direction(self):
         roll = self.dice_roller.roll()
-        print(move_matrix.distribution)
-        for direction in move_matrix.distribution:
-            if roll in move_matrix.distribution[direction]:
-                print(f"Pointer moved {direction}")
-                self.move_pointer(direction)
-                return
+        print(self.move_matrix.distribution)
+        for direction in self.move_matrix.distribution:
+            if roll in self.move_matrix.distribution[direction]:
+                return direction
 
     def get_position(self):
         hex_to_get = self.hex_flower.get_hex(self.q, self.r)
         if hex_to_get is not None:
-            return hex_to_get.get_cartesian()
+            return hex_to_get.get_cartesian_flat()
         return None
 
 
@@ -313,14 +363,23 @@ class Main:
         fig = go.Figure()
 
         # Plot HexFlower
-        x_hexes, y_hexes, labels = self.hex_flower.get_plot_data()
+        x_hexes, y_hexes, sizes, colors, labels = self.hex_flower.get_plot_data()
+
+        sizes = self.normalize_size(sizes)
+        colors = self.normalize_size(colors)
+
         fig.add_trace(
             go.Scatter(
                 x=x_hexes,
                 y=y_hexes,
                 mode="markers+text",
                 text=labels,
-                marker=dict(size=10, color="blue"),
+                marker=dict(
+                    size=sizes,
+                    color=colors,
+                    colorscale="Hot",
+                    sizemode="diameter",
+                ),
                 textposition="bottom center",
             )
         )
@@ -346,10 +405,16 @@ class Main:
         )
         fig.show()
 
+    @staticmethod
+    def normalize_size(values, min_size=10, max_size=50):
+        normalized = (values - np.min(values)) / (np.max(values) - np.min(values))
+        return normalized * (max_size - min_size) + min_size
+
 
 if __name__ == "__main__":
     main = Main()
-    main.move_matrix.setup_roll_table(["NE", "E", "SE", "SW", "W", "NW"])
-    for _ in range(10):
-        main.pointer.determine_move_direction(main.move_matrix)
+    main.move_matrix.setup_roll_table(["SW"])
+
+    for _ in range(6):
+        main.pointer.move_pointer()
         main.plot()
